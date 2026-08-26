@@ -35,25 +35,32 @@ Prompt
 dataset.jsonl ──▶ bench run ──▶ Target Model ──▶ Judge ──▶ SQLite ──▶ report.md
 ```
 
-## What works now (M1)
-
-The scaffold is in place. All source packages are importable stubs — no logic yet.
+## What works now (M2)
 
 | Deliverable | Notes |
 |-------------|-------|
-| `src/` layout with six packages | `classifier`, `router`, `eval`, `api`, `db`, `cli` — each has an `__init__.py` |
-| `config/routing.yaml` | Anthropic model tier mapping: Haiku (simple) → Sonnet (medium) → Opus (hard) |
+| `src/classifier/classify.py` | Zero-shot complexity classifier via `claude-haiku-4-5-20251001`; returns `"simple"` / `"medium"` / `"hard"` |
+| `src/router/config.py` | `Router` loads `config/routing.yaml` and returns a typed `RouteTarget` dataclass |
+| `config/routing.yaml` | Adds `max_cost_usd` guard per tier |
+| `tests/test_classifier.py` | 5 unit tests (all mocked — no API key needed) |
+| `tests/test_router.py` | 5 unit tests including custom-path fixture |
+| `src/` layout with six packages | `classifier`, `router`, `eval`, `api`, `db`, `cli` |
 | `pyproject.toml` | Editable install via `pip install -e .`, requires Python ≥ 3.11 |
-| `requirements.txt` | Placeholder — dependencies added per milestone |
 | `LICENSE` | MIT |
 | `.gitignore` | Excludes `.env`, `__pycache__`, `.venv`, SQLite files |
 
-## Quickstart
-
-> Steps 1–3 work now. Steps 4–5 require M2–M5 to be complete.
+Run tests (no API key required):
 
 ```bash
-# 1. Install dependencies (currently empty; populated per milestone)
+PYTHONPATH=. pytest tests/ -v
+```
+
+## Quickstart
+
+> Steps 1–3 work now. The classifier and router (M2) are functional. Step 4 requires M4. Step 5 requires M5.
+
+```bash
+# 1. Install dependencies
 pip install -r requirements.txt
 
 # 2. Install the package in editable mode (required for src/ imports)
@@ -72,7 +79,7 @@ bench run data/demo.jsonl
 
 ## Project layout
 
-Target layout — directories marked with a milestone exist as stubs only until that milestone ships.
+Directories annotated with a future milestone are stubs until that milestone ships. M1 and M2 have shipped.
 
 ```
 llm-router-eval-bench/
@@ -81,12 +88,15 @@ llm-router-eval-bench/
 ├── data/                   # created in M5
 │   └── demo.jsonl          # 30-prompt test suite (M5)
 ├── src/
-│   ├── classifier/         # zero-shot complexity classifier (M2)
-│   ├── router/             # routing table loader (M2)
+│   ├── classifier/         # zero-shot complexity classifier — shipped (M2)
+│   ├── router/             # routing table loader — shipped (M2)
 │   ├── eval/               # LLM-as-judge rubric engine (M3)
 │   ├── api/                # FastAPI /chat endpoint (M4)
 │   ├── db/                 # SQLite logging (M4)
 │   └── cli/                # Typer CLI — bench run (M5)
+├── tests/
+│   ├── test_classifier.py  # 5 unit tests, all mocked
+│   └── test_router.py      # 5 unit tests including custom-path fixture
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
@@ -97,7 +107,7 @@ llm-router-eval-bench/
 | # | Milestone | Status |
 |---|-----------|--------|
 | M1 | Scaffold + README | done |
-| M2 | Complexity classifier + routing table | pending |
+| M2 | Complexity classifier + routing table | done |
 | M3 | LLM-as-judge rubric engine | pending |
 | M4 | FastAPI `/chat` endpoint + SQLite logging | pending |
 | M5 | CLI `bench run` + demo dataset + report | pending |

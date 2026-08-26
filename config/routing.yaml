@@ -4,9 +4,12 @@ routing:
   simple:
     provider: anthropic
     model: claude-haiku-4-5-20251001
+    max_cost_usd: 0.005
   medium:
     provider: anthropic
     model: claude-sonnet-4-6
+    max_cost_usd: 0.05
   hard:
     provider: anthropic
     model: claude-opus-4-6
+    max_cost_usd: 0.20
