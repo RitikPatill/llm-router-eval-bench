@@ -1,0 +1,9 @@
+WARNING: Ignoring invalid distribution -killbank-agent (c:\users\ritik\appdata\local\programs\python\python310\lib\site-packages)
+WARNING: Ignoring invalid distribution -orch (c:\users\ritik\appdata\local\programs\python\python310\lib\site-packages)
+WARNING: Ignoring invalid distribution -killbank-agent (c:\users\ritik\appdata\local\programs\python\python310\lib\site-packages)
+WARNING: Ignoring invalid distribution -orch (c:\users\ritik\appdata\local\programs\python\python310\lib\site-packages)
+WARNING: Ignoring invalid distribution -killbank-agent (c:\users\ritik\appdata\local\programs\python\python310\lib\site-packages)
+WARNING: Ignoring invalid distribution -orch (c:\users\ritik\appdata\local\programs\python\python310\lib\site-packages)
+
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: python.exe -m pip install --upgrade pip
