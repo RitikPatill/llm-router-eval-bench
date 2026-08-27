@@ -35,30 +35,29 @@ Prompt
 dataset.jsonl ──▶ bench run ──▶ Target Model ──▶ Judge ──▶ SQLite ──▶ report.md
 ```
 
-## What works now (M3)
+## What works now (M4)
 
 | Deliverable | Notes |
 |-------------|-------|
+| `src/api/app.py` | FastAPI app with `POST /chat` (OpenAI-compatible); wires classifier → router → Anthropic API → judge → SQLite in one request |
+| `src/api/models.py` | Pydantic models: `ChatRequest`, `ChatResponse`, `Choice`, `Usage`, `ChatMessage` |
+| `tests/test_api.py` | 3 async tests — 200 response shape, `log_call` called with correct args, 422 on missing `messages` |
 | `src/classifier/classify.py` | Zero-shot complexity classifier via `claude-haiku-4-5-20251001`; returns `"simple"` / `"medium"` / `"hard"` |
 | `src/router/config.py` | `Router` loads `config/routing.yaml` and returns a typed `RouteTarget` dataclass |
-| `config/routing.yaml` | Adds `max_cost_usd` guard per tier |
-| `src/eval/judge.py` | LLM-as-judge engine — scores `(prompt, response)` pairs with a structured rubric; returns a `RubricScore(correctness, coherence, conciseness)` dataclass (each 0–5) |
-| `src/db/store.py` | `init_db()` / `log_call()` via `aiosqlite` — persists the full call record (prompt hash, model, latency, tokens, cost, rubric scores) to a SQLite `calls` table |
-| `tests/test_judge.py` | 6 unit tests (happy path, out-of-range, non-JSON, missing key, model selection, float cast) — all mocked |
-| `tests/test_store.py` | 3 async unit tests (table creation, column round-trip, distinct rowids) — uses `tmp_path` SQLite |
-| `tests/test_classifier.py` | 5 unit tests, all mocked |
-| `tests/test_router.py` | 5 unit tests including custom-path fixture |
-| `pyproject.toml` | `asyncio_mode = "auto"` added for `pytest-asyncio` |
+| `config/routing.yaml` | `max_cost_usd` guard per tier |
+| `src/eval/judge.py` | LLM-as-judge engine — scores `(prompt, response)` pairs; returns `RubricScore(correctness, coherence, conciseness)` (each 0–5) |
+| `src/db/store.py` | `init_db()` / `log_call()` via `aiosqlite` — persists prompt hash, model, latency, tokens, cost, rubric scores |
 
 Run all tests (no API key required):
 
 ```bash
 PYTHONPATH=. pytest tests/ -v
+# 22 passed
 ```
 
 ## Quickstart
 
-> Steps 1–3 work now. The classifier, router (M2), judge, and SQLite store (M3) are functional. Step 4 requires M4. Step 5 requires M5.
+> Steps 1–5 work now. Step 6 requires M5.
 
 ```bash
 # 1. Install dependencies
@@ -71,16 +70,21 @@ pip install -e .
 export ANTHROPIC_API_KEY=sk-ant-...
 # Or put them in a .env file (see .gitignore — .env is excluded)
 
-# 4. Start the API server  [available after M4]
+# 4. Start the API server
 uvicorn src.api.app:app --reload
 
-# 5. Run a benchmark  [available after M5]
+# 5. Call the endpoint (OpenAI-compatible shape)
+curl http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
+
+# 6. Run a benchmark  [available after M5]
 bench run data/demo.jsonl
 ```
 
 ## Project layout
 
-Directories annotated with a future milestone are stubs until that milestone ships. M1, M2, and M3 have shipped.
+Directories annotated with a future milestone are stubs until that milestone ships. M1–M4 have shipped.
 
 ```
 llm-router-eval-bench/
@@ -93,13 +97,14 @@ llm-router-eval-bench/
 │   ├── router/             # routing table loader — shipped (M2)
 │   ├── eval/               # LLM-as-judge rubric engine — shipped (M3)
 │   ├── db/                 # SQLite logging — shipped (M3)
-│   ├── api/                # FastAPI /chat endpoint (M4)
+│   ├── api/                # FastAPI /chat endpoint — shipped (M4)
 │   └── cli/                # Typer CLI — bench run (M5)
 ├── tests/
 │   ├── test_classifier.py  # 5 unit tests, all mocked
 │   ├── test_router.py      # 5 unit tests including custom-path fixture
 │   ├── test_judge.py       # 6 unit tests for judge(), all mocked
-│   └── test_store.py       # 3 async unit tests for SQLite persistence
+│   ├── test_store.py       # 3 async unit tests for SQLite persistence
+│   └── test_api.py         # 3 async tests for POST /chat
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
@@ -112,7 +117,7 @@ llm-router-eval-bench/
 | M1 | Scaffold + README | done |
 | M2 | Complexity classifier + routing table | done |
 | M3 | LLM-as-judge rubric engine + SQLite store | done |
-| M4 | FastAPI `/chat` endpoint | pending |
+| M4 | FastAPI `/chat` endpoint | done |
 | M5 | CLI `bench run` + demo dataset + report | pending |
 
 ## License
