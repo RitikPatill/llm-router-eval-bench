@@ -35,13 +35,14 @@ Prompt
 dataset.jsonl ──▶ bench run ──▶ Target Model ──▶ Judge ──▶ SQLite ──▶ report.md
 ```
 
-## What works now (M4)
+## What works now (M5)
 
 | Deliverable | Notes |
 |-------------|-------|
+| `src/cli/__init__.py` | Typer CLI with `bench run` command — replays a JSONL dataset through the full pipeline (classify → route → Anthropic → judge → SQLite), prints a Rich table per model, writes `report.md` |
+| `data/demo.jsonl` | 30-prompt demo dataset: 10 simple / 10 medium / 10 hard prompts with `complexity_hint` metadata |
 | `src/api/app.py` | FastAPI app with `POST /chat` (OpenAI-compatible); wires classifier → router → Anthropic API → judge → SQLite in one request |
 | `src/api/models.py` | Pydantic models: `ChatRequest`, `ChatResponse`, `Choice`, `Usage`, `ChatMessage` |
-| `tests/test_api.py` | 3 async tests — 200 response shape, `log_call` called with correct args, 422 on missing `messages` |
 | `src/classifier/classify.py` | Zero-shot complexity classifier via `claude-haiku-4-5-20251001`; returns `"simple"` / `"medium"` / `"hard"` |
 | `src/router/config.py` | `Router` loads `config/routing.yaml` and returns a typed `RouteTarget` dataclass |
 | `config/routing.yaml` | `max_cost_usd` guard per tier |
@@ -52,18 +53,16 @@ Run all tests (no API key required):
 
 ```bash
 PYTHONPATH=. pytest tests/ -v
-# 22 passed
+# 25 passed
 ```
 
 ## Quickstart
-
-> Steps 1–5 work now. Step 6 requires M5.
 
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Install the package in editable mode (required for src/ imports)
+# 2. Install the package in editable mode (registers the `bench` CLI command)
 pip install -e .
 
 # 3. Set API keys — never commit these
@@ -78,13 +77,31 @@ curl http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
 
-# 6. Run a benchmark  [available after M5]
+# 6. Run a benchmark against the 30-prompt demo dataset
 bench run data/demo.jsonl
+
+# Optional flags
+bench run data/demo.jsonl --db my.db --config config/routing.yaml --report report.md
+```
+
+### Bench output
+
+```
+Running bench... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 30/30
+          Bench Results
+┌──────────────────────────┬───────┬──────────────┬─────────────────┬──────────────────┐
+│ Model                    │ Calls │  Avg Cost ($) │ Avg Score (0–5) │ Avg Latency (ms) │
+├──────────────────────────┼───────┼──────────────┼─────────────────┼──────────────────┤
+│ claude-haiku-4-5-20251001│    10 │     0.000023 │            4.12 │              620 │
+│ claude-sonnet-4-6        │    10 │     0.000890 │            4.51 │             1340 │
+│ claude-opus-4-6          │    10 │     0.004200 │            4.78 │             2800 │
+└──────────────────────────┴───────┴──────────────┴─────────────────┴──────────────────┘
+Report written to report.md
 ```
 
 ## Project layout
 
-Directories annotated with a future milestone are stubs until that milestone ships. M1–M4 have shipped.
+All milestones M1–M5 have shipped.
 
 ```
 llm-router-eval-bench/
@@ -104,7 +121,8 @@ llm-router-eval-bench/
 │   ├── test_router.py      # 5 unit tests including custom-path fixture
 │   ├── test_judge.py       # 6 unit tests for judge(), all mocked
 │   ├── test_store.py       # 3 async unit tests for SQLite persistence
-│   └── test_api.py         # 3 async tests for POST /chat
+│   ├── test_api.py         # 3 async tests for POST /chat
+│   └── test_cli.py         # 3 unit tests for bench run CLI
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
@@ -118,7 +136,7 @@ llm-router-eval-bench/
 | M2 | Complexity classifier + routing table | done |
 | M3 | LLM-as-judge rubric engine + SQLite store | done |
 | M4 | FastAPI `/chat` endpoint | done |
-| M5 | CLI `bench run` + demo dataset + report | pending |
+| M5 | CLI `bench run` + demo dataset + report | done |
 
 ## License
 
