@@ -1,132 +1,169 @@
 # llm-router-eval-bench
 
+
+> **Video walkthrough:** https://youtu.be/wrWOJ62NeS4
+> **60-second overview:** https://youtu.be/aDUmNnEZ6EE
+
 A local proxy that **routes** LLM prompts to the cheapest model that can handle them and **evaluates** every response with a structured LLM-as-judge rubric — all logged to SQLite.
 
-## What it is
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-The router classifies each prompt by complexity (simple / medium / hard) and forwards it to the matching model tier (e.g. Haiku → Sonnet → Opus). After the model responds, a lightweight judge scores the answer on three axes (correctness, coherence, conciseness) and writes everything to a local SQLite database. A FastAPI `/chat` endpoint makes the whole stack OpenAI-compatible, so any existing app can point at it without changes.
+![bench run demo](demo.gif)
 
-## Why it exists
-
-Evals are the #1 skill gap in production LLM teams. This project demonstrates: (a) structured eval design, (b) LLM-as-judge methodology, and (c) practical cost/quality trade-off reasoning — all things interviewers at AI-first companies actively probe for.
+---
 
 ## Architecture
 
 ```
-Prompt
-  │
-  ▼
-┌─────────────┐     config/routing.yaml
-│  Classifier │──────────────────────────▶ Target Model
-│ (zero-shot) │                                 │
-└─────────────┘                                 ▼
-                                          ┌──────────┐
-                                          │  Judge   │──▶ SQLite log
-                                          │ (rubric) │
-                                          └──────────┘
-                                                │
-                                                ▼
-                                          /chat response
+┌──────────────────────────────────────────────────────────────┐
+│  Client (any OpenAI-compatible app or bench CLI)             │
+└───────────────────────┬──────────────────────────────────────┘
+                        │ POST /chat  (OpenAI wire format)
+                        ▼
+┌──────────────────────────────────────────────────────────────┐
+│  FastAPI Router  (src/api/app.py)                            │
+│                                                              │
+│  1. Classifier  ──► complexity label (simple/medium/hard)    │
+│        │             (claude-haiku-4-5, zero-shot)           │
+│        ▼                                                      │
+│  2. Router      ──► target model  (config/routing.yaml)      │
+│        │                                                      │
+│        ▼                                                      │
+│  3. LLM call    ──► Anthropic API                            │
+│        │                                                      │
+│        ▼                                                      │
+│  4. Judge       ──► RubricScore (correctness/coherence/      │
+│        │             conciseness, 0–5 each, claude-haiku)    │
+│        ▼                                                      │
+│  5. SQLite log  ──► router.db / bench.db                     │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 **CLI bench flow:**
 
 ```
-dataset.jsonl ──▶ bench run ──▶ Target Model ──▶ Judge ──▶ SQLite ──▶ report.md
+data/demo.jsonl ──▶ bench run ──▶ Classifier ──▶ Router ──▶ Anthropic API ──▶ Judge ──▶ SQLite ──▶ report.md
 ```
 
-## What works now (M5)
+---
 
-| Deliverable | Notes |
-|-------------|-------|
-| `src/cli/__init__.py` | Typer CLI with `bench run` command — replays a JSONL dataset through the full pipeline (classify → route → Anthropic → judge → SQLite), prints a Rich table per model, writes `report.md` |
-| `data/demo.jsonl` | 30-prompt demo dataset: 10 simple / 10 medium / 10 hard prompts with `complexity_hint` metadata |
-| `src/api/app.py` | FastAPI app with `POST /chat` (OpenAI-compatible); wires classifier → router → Anthropic API → judge → SQLite in one request |
-| `src/api/models.py` | Pydantic models: `ChatRequest`, `ChatResponse`, `Choice`, `Usage`, `ChatMessage` |
-| `src/classifier/classify.py` | Zero-shot complexity classifier via `claude-haiku-4-5-20251001`; returns `"simple"` / `"medium"` / `"hard"` |
-| `src/router/config.py` | `Router` loads `config/routing.yaml` and returns a typed `RouteTarget` dataclass |
-| `config/routing.yaml` | `max_cost_usd` guard per tier |
-| `src/eval/judge.py` | LLM-as-judge engine — scores `(prompt, response)` pairs; returns `RubricScore(correctness, coherence, conciseness)` (each 0–5) |
-| `src/db/store.py` | `init_db()` / `log_call()` via `aiosqlite` — persists prompt hash, model, latency, tokens, cost, rubric scores |
+## Quickstart
 
-Run all tests (no API key required):
+```bash
+git clone <repo>
+cd llm-router-eval-bench
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .
+
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Run the benchmark
+bench run data/demo.jsonl
+
+# Or start the API server
+uvicorn src.api.app:app --reload
+```
+
+---
+
+## Config reference
+
+Routing is driven by `config/routing.yaml`. Edit tiers to match your budget/quality needs.
+
+| Field | Type | Description |
+|---|---|---|
+| `routing.<tier>.provider` | string | `anthropic` or `openai` |
+| `routing.<tier>.model` | string | Model ID passed to the provider API |
+| `routing.<tier>.max_cost_usd` | float | Informational budget cap per call (not enforced) |
+
+Default configuration:
+
+```yaml
+# complexity → model routing table
+# Edit tiers to match your budget/quality needs.
+routing:
+  simple:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    max_cost_usd: 0.005
+  medium:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    max_cost_usd: 0.05
+  hard:
+    provider: anthropic
+    model: claude-opus-4-6
+    max_cost_usd: 0.20
+```
+
+---
+
+## Example Markdown report
+
+> Example output (trimmed for brevity — generated by `bench run data/demo.jsonl --report report.md`)
+
+```markdown
+# Bench Report
+
+| Model                      | Calls | Avg Cost ($) | Avg Score (0–5) | Avg Latency (ms) |
+| -------------------------- | ----: | -----------: | --------------: | ---------------: |
+| claude-haiku-4-5-20251001  |    10 |     0.000041 |            4.20 |              612 |
+| claude-sonnet-4-6          |    12 |     0.001823 |            4.55 |             1340 |
+| claude-opus-4-6            |     8 |     0.009412 |            4.81 |             2187 |
+```
+
+---
+
+## Project layout
+
+```
+llm-router-eval-bench/
+├── config/
+│   └── routing.yaml        # complexity → model mapping (Haiku/Sonnet/Opus)
+├── data/
+│   └── demo.jsonl          # 30-prompt test suite (10 simple / 10 medium / 10 hard)
+├── src/
+│   ├── classifier/         # zero-shot complexity classifier (claude-haiku, zero-shot)
+│   ├── router/             # routing table loader — maps label → RouteTarget
+│   ├── eval/               # LLM-as-judge rubric engine — RubricScore(0–5 × 3 axes)
+│   ├── db/                 # aiosqlite store — init_db() / log_call()
+│   ├── api/                # FastAPI POST /chat (OpenAI-compatible)
+│   └── cli/                # Typer CLI — bench run
+├── tests/
+│   ├── test_classifier.py
+│   ├── test_router.py
+│   ├── test_judge.py
+│   ├── test_store.py
+│   ├── test_api.py
+│   └── test_cli.py
+├── demo.tape               # VHS tape for reproducing demo.gif
+├── pyproject.toml
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## Running tests
 
 ```bash
 PYTHONPATH=. pytest tests/ -v
 # 25 passed
 ```
 
-## Quickstart
+No API key is required — all external calls are mocked.
 
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+---
 
-# 2. Install the package in editable mode (registers the `bench` CLI command)
-pip install -e .
+## What it demonstrates
 
-# 3. Set API keys — never commit these
-export ANTHROPIC_API_KEY=sk-ant-...
-# Or put them in a .env file (see .gitignore — .env is excluded)
+- **Structured eval design** — rubric with 3 axes (correctness, coherence, conciseness), each scored 0–5
+- **LLM-as-judge methodology** — a cheap model (Haiku) acts as judge; structured JSON output enforced via prompt
+- **Cost/quality trade-off reasoning** — routing table makes the trade-off explicit and measurable
+- **OpenAI-compatible API** — drop-in replacement for any existing OpenAI client
 
-# 4. Start the API server
-uvicorn src.api.app:app --reload
-
-# 5. Call the endpoint (OpenAI-compatible shape)
-curl http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
-
-# 6. Run a benchmark against the 30-prompt demo dataset
-bench run data/demo.jsonl
-
-# Optional flags
-bench run data/demo.jsonl --db my.db --config config/routing.yaml --report report.md
-```
-
-### Bench output
-
-```
-Running bench... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 30/30
-          Bench Results
-┌──────────────────────────┬───────┬──────────────┬─────────────────┬──────────────────┐
-│ Model                    │ Calls │  Avg Cost ($) │ Avg Score (0–5) │ Avg Latency (ms) │
-├──────────────────────────┼───────┼──────────────┼─────────────────┼──────────────────┤
-│ claude-haiku-4-5-20251001│    10 │     0.000023 │            4.12 │              620 │
-│ claude-sonnet-4-6        │    10 │     0.000890 │            4.51 │             1340 │
-│ claude-opus-4-6          │    10 │     0.004200 │            4.78 │             2800 │
-└──────────────────────────┴───────┴──────────────┴─────────────────┴──────────────────┘
-Report written to report.md
-```
-
-## Project layout
-
-All milestones M1–M5 have shipped.
-
-```
-llm-router-eval-bench/
-├── config/
-│   └── routing.yaml        # complexity → model mapping (Haiku/Sonnet/Opus)
-├── data/                   # created in M5
-│   └── demo.jsonl          # 30-prompt test suite (M5)
-├── src/
-│   ├── classifier/         # zero-shot complexity classifier — shipped (M2)
-│   ├── router/             # routing table loader — shipped (M2)
-│   ├── eval/               # LLM-as-judge rubric engine — shipped (M3)
-│   ├── db/                 # SQLite logging — shipped (M3)
-│   ├── api/                # FastAPI /chat endpoint — shipped (M4)
-│   └── cli/                # Typer CLI — bench run (M5)
-├── tests/
-│   ├── test_classifier.py  # 5 unit tests, all mocked
-│   ├── test_router.py      # 5 unit tests including custom-path fixture
-│   ├── test_judge.py       # 6 unit tests for judge(), all mocked
-│   ├── test_store.py       # 3 async unit tests for SQLite persistence
-│   ├── test_api.py         # 3 async tests for POST /chat
-│   └── test_cli.py         # 3 unit tests for bench run CLI
-├── pyproject.toml
-├── requirements.txt
-└── README.md
-```
+---
 
 ## Milestones
 
@@ -137,6 +174,9 @@ llm-router-eval-bench/
 | M3 | LLM-as-judge rubric engine + SQLite store | done |
 | M4 | FastAPI `/chat` endpoint | done |
 | M5 | CLI `bench run` + demo dataset + report | done |
+| M6 | Polish README, demo GIF, architecture notes, pin deps | done |
+
+---
 
 ## License
 
